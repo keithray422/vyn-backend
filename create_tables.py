@@ -1,8 +1,9 @@
-from app.db.database import engine
-from app.db import models
+import asyncio
+from app.db.database import engine, Base
 
-def create_all():
-    models.Base.metadata.create_all(bind=engine)
+async def create_all():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 if __name__ == "__main__":
-    create_all()
+    asyncio.run(create_all())
