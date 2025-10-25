@@ -9,3 +9,4 @@ async def create_all():
 
 if __name__ == "__main__":
     asyncio.run(create_all())
+Base.metadata.create_all(bind=engine)
