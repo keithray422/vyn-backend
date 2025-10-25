@@ -1,12 +1,8 @@
-import asyncio
 from app.db.database import engine
-from app.models.user import Base
+from app.db import models
 
-async def create_all():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print("✅ Tables created successfully!")
+def create_all():
+    models.Base.metadata.create_all(bind=engine)
 
 if __name__ == "__main__":
-    asyncio.run(create_all())
-Base.metadata.create_all(bind=engine)
+    create_all()
