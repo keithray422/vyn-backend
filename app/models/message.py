@@ -1,15 +1,11 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
-from sqlalchemy.orm import relationship
-from app.models.user import Base
+from sqlalchemy import Column, Integer, String, ForeignKey
+from app.db.database import Base
+from app.models.user_model import User
 
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    sender_id = Column(Integer, ForeignKey(User.id))
+    receiver_id = Column(Integer, ForeignKey(User.id))
     content = Column(String, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
-
-    sender = relationship("User", foreign_keys=[sender_id])
-    receiver = relationship("User", foreign_keys=[receiver_id])
