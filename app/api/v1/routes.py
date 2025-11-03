@@ -9,11 +9,10 @@ from app.api.v1.schemas import Token
 from sqlalchemy.future import select
 from jose import JWTError, jwt
 from app.core.security import SECRET_KEY, ALGORITHM
-from app.models.user import User
+from app.models import User
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
-
 from fastapi import FastAPI
 app = FastAPI()
 
