@@ -7,11 +7,23 @@ from app.api.v1.user_service import create_user, get_user_by_phone
 from app.core.security import create_access_token
 from app.api.v1.schemas import Token
 from sqlalchemy.future import select
-
 from jose import JWTError, jwt
 from app.core.security import SECRET_KEY, ALGORITHM
 from app.models.user import User
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback, sys
+    print("🔥 Backend error:", str(exc), file=sys.stderr)
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
 
 security = HTTPBearer()
 
