@@ -72,18 +72,45 @@ from app.models.user import User
 
 router = APIRouter()
 
+# inside app/api/v1/routes.py — replace the existing register handler with this
+
+import random
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.database import get_db
+from app.api.v1.schemas import UserCreate, UserResponse
+from app.models.user import User  # direct, full module path import
+
+router = APIRouter()
+
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.phone_number == user_data.phone_number))
-    existing = result.scalars().first()
-    if existing:
-        raise HTTPException(status_code=400, detail="User already exists.")
+    """
+    Create user record (unverified) and log a mock SMS verification code.
+    Request body: { "phone_number": "...", "username": "..." }
+    Response: created user object (id, phone_number, username)
+    """
+    # Basic validation (should be already enforced by pydantic)
+    if not user_data.phone_number or not user_data.username:
+        raise HTTPException(status_code=400, detail="phone_number and username are required")
 
-    # Generate mock verification code
+    # Check existing by phone_number
+    result = await db.execute(select(User).where(User.phone_number == user_data.phone_number))
+    existing_phone = result.scalars().first()
+    if existing_phone:
+        raise HTTPException(status_code=400, detail="User with this phone number already exists.")
+
+    # Also check username uniqueness
+    result2 = await db.execute(select(User).where(User.username == user_data.username))
+    existing_name = result2.scalars().first()
+    if existing_name:
+        raise HTTPException(status_code=400, detail="Username already taken.")
+
+    # Create mock verification code and user
     verification_code = str(random.randint(1000, 9999))
 
-    # Create new user
     new_user = User(
         phone_number=user_data.phone_number,
         username=user_data.username,
@@ -95,10 +122,11 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(new_user)
 
-    # Log mock SMS
+    # Log the mock SMS (in production replace with SMS provider)
     logging.warning(f"📱 Mock SMS to {new_user.phone_number}: Your Vyn verification code is {verification_code}")
 
     return new_user
+
 
 
 # -------- User login --------
