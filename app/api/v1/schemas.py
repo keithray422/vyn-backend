@@ -1,3 +1,4 @@
+# app/api/v1/schemas.py
 from pydantic import BaseModel
 
 class UserCreate(BaseModel):
@@ -11,6 +12,3 @@ class UserResponse(BaseModel):
 
     class Config:
         orm_mode = True
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
