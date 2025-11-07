@@ -5,6 +5,7 @@
 
 import asyncio
 from app.db.database import engine, Base
+from app.models.user import User  # Import all models here!
 
 async def create_all_tables():
     # Use an async context so SQLAlchemy uses the async engine properly
