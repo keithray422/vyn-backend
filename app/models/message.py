@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.database import Base
+from app.models.user import User
+user = relationship(User, back_populates="messages")
 
 class Message(Base):
     __tablename__ = "messages"

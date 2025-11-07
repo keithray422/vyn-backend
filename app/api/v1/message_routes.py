@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.db import models
+from app.models import Message, User
 from app.db.database import get_db
 from app.api.v1.message_schemas import MessageSchema
 
