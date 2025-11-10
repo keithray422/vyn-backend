@@ -1,112 +1,81 @@
-# app/api/v1/chat_routes.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel
 from app.db.database import get_db
-from app.models.user import User
 from app.models.message import Message
-from sqlalchemy import or_
-from datetime import datetime
+from app.models.user import User
+from pydantic import BaseModel
+import traceback
 
 router = APIRouter()
 
-
 # -------------------- SCHEMAS --------------------
-class MessageCreate(BaseModel):
+class SendMessageRequest(BaseModel):
     sender_id: int
     receiver_id: int
     content: str
 
+# -------------------- ROUTES --------------------
 
-# -------------------- SEND MESSAGE --------------------
-@router.post("/send_message")
-async def send_message(data: MessageCreate, db: AsyncSession = Depends(get_db)):
-    sender = await db.get(User, data.sender_id)
-    receiver = await db.get(User, data.receiver_id)
+@router.post("/messages/send")
+async def send_message(data: SendMessageRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        # ✅ Ensure sender and receiver exist
+        sender = await db.execute(select(User).where(User.id == data.sender_id))
+        receiver = await db.execute(select(User).where(User.id == data.receiver_id))
+        sender_user = sender.scalars().first()
+        receiver_user = receiver.scalars().first()
 
-    if not sender or not receiver:
-        raise HTTPException(status_code=404, detail="User not found")
+        if not sender_user or not receiver_user:
+            raise HTTPException(status_code=404, detail="Sender or receiver not found.")
 
-    new_message = Message(
-        sender_id=data.sender_id,
-        receiver_id=data.receiver_id,
-        content=data.content,
-        timestamp=datetime.utcnow()
-    )
-
-    db.add(new_message)
-    await db.commit()
-    await db.refresh(new_message)
-
-    return {"message": "Message sent", "data": {
-        "id": new_message.id,
-        "content": new_message.content,
-        "timestamp": new_message.timestamp.isoformat()
-    }}
-
-
-# -------------------- GET MESSAGES BETWEEN TWO USERS --------------------
-@router.get("/get_messages/{user_id}/{other_user_id}")
-async def get_messages(user_id: int, other_user_id: int, db: AsyncSession = Depends(get_db)):
-    query = await db.execute(
-        select(Message)
-        .where(
-            or_(
-                (Message.sender_id == user_id) & (Message.receiver_id == other_user_id),
-                (Message.sender_id == other_user_id) & (Message.receiver_id == user_id)
-            )
+        # ✅ Create message
+        new_message = Message(
+            sender_id=data.sender_id,
+            receiver_id=data.receiver_id,
+            content=data.content
         )
-        .order_by(Message.timestamp)
-    )
+        db.add(new_message)
+        await db.commit()
+        await db.refresh(new_message)
 
-    messages = query.scalars().all()
-    return {"messages": [
-        {
-            "id": m.id,
-            "sender_id": m.sender_id,
-            "receiver_id": m.receiver_id,
-            "content": m.content,
-            "timestamp": m.timestamp.isoformat()
-        }
-        for m in messages
-    ]}
+        return {"message": {
+            "id": new_message.id,
+            "sender_id": new_message.sender_id,
+            "receiver_id": new_message.receiver_id,
+            "content": new_message.content,
+            "timestamp": new_message.timestamp.isoformat(),
+        }}
 
-
-# -------------------- GET CHATS (chat list) --------------------
-@router.get("/get_chats/{user_id}")
-async def get_chats(user_id: int, db: AsyncSession = Depends(get_db)):
-    query = await db.execute(
-        select(Message)
-        .where(or_(Message.sender_id == user_id, Message.receiver_id == user_id))
-        .order_by(Message.timestamp.desc())
-    )
-    messages = query.scalars().all()
-
-    chat_partners = {}
-    for msg in messages:
-        other_id = msg.receiver_id if msg.sender_id == user_id else msg.sender_id
-        if other_id not in chat_partners:
-            other_user = await db.get(User, other_id)
-            if other_user:
-                chat_partners[other_id] = {
-                    "id": other_id,
-                    "username": other_user.username,
-                    "last_message": msg.content,
-                    "timestamp": msg.timestamp.isoformat(),
-                }
-
-    return {"chats": list(chat_partners.values())}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Send error: {str(e)}")
 
 
-# -------------------- SEARCH USERS --------------------
-@router.get("/search_user")
-async def search_user(query: str, db: AsyncSession = Depends(get_db)):
-    stmt = await db.execute(
-        select(User).where(User.username.ilike(f"%{query}%"))
-    )
-    results = stmt.scalars().all()
-    return {"results": [
-        {"id": user.id, "username": user.username, "phone_number": user.phone_number}
-        for user in results
-    ]}
+@router.get("/messages/{user_id}")
+async def get_user_messages(user_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Fetch messages sent or received by a specific user.
+    """
+    try:
+        result = await db.execute(
+            select(Message).where((Message.sender_id == user_id) | (Message.receiver_id == user_id))
+        )
+        messages = result.scalars().all()
+
+        # Convert to dicts
+        formatted = [
+            {
+                "id": msg.id,
+                "sender_id": msg.sender_id,
+                "receiver_id": msg.receiver_id,
+                "content": msg.content,
+                "timestamp": msg.timestamp.isoformat(),
+            }
+            for msg in messages
+        ]
+        return {"messages": formatted}
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Fetch error: {str(e)}")
