@@ -18,3 +18,4 @@ from app.api.v1 import message_routes
 app.include_router(message_routes.router, prefix="/api/v1")
 app.include_router(chat_routes.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(chat_ws.router, prefix="/api/v1")
+app.include_router(chat_ws.router)
