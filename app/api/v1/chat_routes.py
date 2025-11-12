@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import datetime
 import json
+from fastapi import Body
 
 router = APIRouter()
 active_connections = {}
@@ -96,3 +97,47 @@ async def get_chat_history(user1_id: int, user2_id: int, db: AsyncSession = Depe
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ✅ Delete a specific message by ID
+@router.delete("/messages/{message_id}")
+async def delete_message(message_id: int, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.future import select
+    result = await db.execute(select(Message).where(Message.id == message_id))
+    message = result.scalars().first()
+
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    await db.delete(message)
+    await db.commit()
+    return {"message": "Message deleted successfully", "deleted_id": message_id}
+
+
+# ✅ Edit message content by ID
+@router.put("/messages/{message_id}")
+async def edit_message(
+    message_id: int, 
+    data: dict = Body(...), 
+    db: AsyncSession = Depends(get_db)
+):
+    new_content = data.get("content")
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Missing new content")
+
+    result = await db.execute(select(Message).where(Message.id == message_id))
+    message = result.scalars().first()
+
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    message.content = new_content
+    await db.commit()
+    await db.refresh(message)
+    return {
+        "message": "Message updated successfully",
+        "updated": {
+            "id": message.id,
+            "content": message.content,
+            "timestamp": str(message.timestamp),
+        },
+    }
