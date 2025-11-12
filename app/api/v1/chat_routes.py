@@ -1,74 +1,98 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from fastapi import APIRouter, WebSocket, Depends, HTTPException
 from app.db.database import get_db
 from app.models.message import Message
-from app.models.user import User
-from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from datetime import datetime
+import json
 
 router = APIRouter()
+active_connections = {}
 
-# ------------------- SCHEMAS -------------------
-class MessageCreate(BaseModel):
-    sender_id: int
-    receiver_id: int
-    content: str
+@router.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: int, db: AsyncSession = Depends(get_db)):
+    await websocket.accept()
+    active_connections[user_id] = websocket
+    print(f"✅ User {user_id} connected")
 
-# ------------------- ROUTES -------------------
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg_data = json.loads(data)
 
-# ✅ 1. Send a message
-@router.post("/messages")
-async def send_message(data: MessageCreate, db: AsyncSession = Depends(get_db)):
-    sender = await db.get(User, data.sender_id)
-    receiver = await db.get(User, data.receiver_id)
+            # Typing indicator
+            if msg_data.get("type") == "typing":
+                target = msg_data["to"]
+                if target in active_connections:
+                    await active_connections[target].send_text(json.dumps(msg_data))
+                continue
 
-    if not sender or not receiver:
-        raise HTTPException(status_code=404, detail="Sender or receiver not found.")
+            # Save message to DB
+            message = Message(
+                sender_id=msg_data["sender_id"],
+                receiver_id=msg_data["receiver_id"],
+                content=msg_data["content"],
+                timestamp=datetime.utcnow(),
+                seen=False,
+            )
+            db.add(message)
+            await db.commit()
+            await db.refresh(message)
 
-    new_msg = Message(
-        sender_id=data.sender_id,
-        receiver_id=data.receiver_id,
-        content=data.content,
-        timestamp=datetime.utcnow(),
-    )
+            # Send to receiver if online
+            receiver_id = msg_data["receiver_id"]
+            if receiver_id in active_connections:
+                await active_connections[receiver_id].send_text(json.dumps({
+                    "sender_id": message.sender_id,
+                    "receiver_id": message.receiver_id,
+                    "content": message.content,
+                    "timestamp": str(message.timestamp),
+                    "seen": True,
+                }))
+                # Mark as seen
+                message.seen = True
+                await db.commit()
 
-    db.add(new_msg)
-    await db.commit()
-    await db.refresh(new_msg)
+            # Confirm to sender
+            await websocket.send_text(json.dumps({
+                "sender_id": message.sender_id,
+                "receiver_id": message.receiver_id,
+                "content": message.content,
+                "timestamp": str(message.timestamp),
+                "seen": message.seen,
+            }))
 
-    return {
-        "message": "Message sent successfully",
-        "data": {
-            "id": new_msg.id,
-            "sender_id": new_msg.sender_id,
-            "receiver_id": new_msg.receiver_id,
-            "content": new_msg.content,
-            "timestamp": new_msg.timestamp,
-        },
-    }
+    except Exception as e:
+        print(f"⚠️ WebSocket error: {e}")
+    finally:
+        del active_connections[user_id]
+        await websocket.close()
 
 
-# ✅ 2. Fetch chat history between two users
-@router.get("/messages/{sender_id}/{receiver_id}")
-async def get_chat_history(sender_id: int, receiver_id: int, db: AsyncSession = Depends(get_db)):
-    query = await db.execute(
-        select(Message)
-        .where(
-            ((Message.sender_id == sender_id) & (Message.receiver_id == receiver_id))
-            | ((Message.sender_id == receiver_id) & (Message.receiver_id == sender_id))
+# ✅ Fetch all messages between two users
+@router.get("/messages/{user1_id}/{user2_id}")
+async def get_chat_history(user1_id: int, user2_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(
+            select(Message)
+            .where(
+                ((Message.sender_id == user1_id) & (Message.receiver_id == user2_id))
+                | ((Message.sender_id == user2_id) & (Message.receiver_id == user1_id))
+            )
+            .order_by(Message.timestamp)
         )
-        .order_by(Message.timestamp.asc())
-    )
-    messages = query.scalars().all()
+        messages = result.scalars().all()
 
-    return [
-        {
-            "id": msg.id,
-            "sender_id": msg.sender_id,
-            "receiver_id": msg.receiver_id,
-            "content": msg.content,
-            "timestamp": msg.timestamp.isoformat(),
-        }
-        for msg in messages
-    ]
+        return [
+            {
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "receiver_id": m.receiver_id,
+                "content": m.content,
+                "timestamp": str(m.timestamp),
+                "seen": m.seen,
+            }
+            for m in messages
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
